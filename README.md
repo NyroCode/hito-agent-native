@@ -6,6 +6,33 @@ Pide a tu agente que convierta un encargo en resultados verificables. Hito conse
 
 Hito ofrece un servidor **MCP con siete herramientas**, una API HTTP local, una CLI y una interfaz de revisión. Funciona con clientes locales compatibles con MCP, incluidos Codex, Claude Code y Cursor. No necesitas una API de IA adicional ni subir tu repositorio a Hito.
 
+## Stellar Odyssey Perú 2026
+
+**Track recomendado:** Open Build / Wildcard — herramienta para desarrolladores que conecta agentes de código con acuerdos verificables y pagos autorizados en Stellar.
+
+### Problema
+
+Los agentes de código pueden planificar y producir software, pero el acuerdo económico suele quedar disperso entre chats, tareas y transferencias manuales. No existe una relación verificable entre lo acordado, la evidencia entregada, la aprobación humana y el pago. Darle una wallet directamente al agente tampoco es una solución segura.
+
+### Solución
+
+Hito añade una capa determinista entre el agente, las personas y Stellar. El agente usa herramientas MCP limitadas para guardar hitos, criterios, progreso y evidencia; las personas sellan el acuerdo y autorizan las operaciones con sus wallets; un contrato Soroban conserva las reglas económicas e impide cambiar silenciosamente importes, destinatarios o liberar dos veces el mismo pago.
+
+### Construido durante la ventana del evento
+
+- Servicio local en TypeScript con API HTTP, SQLite, CLI y siete herramientas MCP.
+- Flujo de acuerdos versionados, evidencia ligada por hash e idempotencia durable.
+- Contrato escrow Soroban con autoridades separadas, dependencias entre hitos, cancelación, vencimiento y protección contra doble liberación.
+- Interfaz humana y bundle de Freighter para revisar y firmar transacciones Testnet.
+- Pruebas automatizadas del núcleo, transporte MCP, Stellar SDK, contrato y navegador; los resultados y sus límites están en [Validación](docs/VALIDATION.md).
+
+### Evidencia en Stellar Testnet
+
+- [Transacción `create` confirmada en Testnet](https://stellar.expert/explorer/testnet/tx/1ff3b0c2ff51723cac49d8044ce0e3e7fbe44e9cc51f57c77fbb8eaec6c1e080) — ledger `4784176`.
+- [Contrato Soroban desplegado en Testnet](https://stellar.expert/explorer/testnet/contract/CDYW3A7EM44O2SJCPMFM2GFYBJL5WFJD3TPAYQF6AMASQ3XXI64AHEQZ) — `CDYW3A7EM44O2SJCPMFM2GFYBJL5WFJD3TPAYQF6AMASQ3XXI64AHEQZ`.
+
+La transacción anterior demuestra la creación on-chain de un acuerdo. El ciclo completo de financiación y liberación aún no tiene recibos publicados; no se presenta como completado. Consulta [gates pendientes](docs/REMAINING_GATES.md).
+
 ```mermaid
 flowchart LR
   U[Tu solicitud] --> A[Tu agente y tu repositorio]
