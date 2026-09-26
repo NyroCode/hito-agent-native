@@ -1,100 +1,64 @@
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import * as S from '@stellar/stellar-sdk';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const tokenContract = process.env.HITO_TOKEN_CONTRACT_ID || 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
-const rpcUrl = process.env.HITO_RPC_URL || 'https://soroban-testnet.stellar.org';
-const server = new S.rpc.Server(rpcUrl);
-
-async function main() {
-  console.log('[deploy] Checking network...');
-  const net = await server.getNetwork();
-  if (net.passphrase !== S.Networks.TESTNET) {
-    throw new Error('RPC is not Stellar Testnet');
-  }
-
-  let kp;
-  if (process.env.HITO_DEPLOYER_SECRET) {
-    kp = S.Keypair.fromSecret(process.env.HITO_DEPLOYER_SECRET);
-    console.log('[deploy] Using deployer public key:', kp.publicKey());
-  } else {
-    kp = S.Keypair.random();
-    console.log('[deploy] Generated ephemeral deployer key:', kp.publicKey());
-    console.log('[deploy] Requesting Testnet Friendbot funding...');
-    const fRes = await fetch(`https://friendbot.stellar.org?addr=${kp.publicKey()}`);
-    if (!fRes.ok) throw new Error(`Friendbot failed with status ${fRes.status}`);
-  }
-
-  let acc = await server.getAccount(kp.publicKey());
-  const wasmPath = 'contracts/target/wasm32v1-none/release/hito_escrow.wasm';
-  const wasm = readFileSync(wasmPath);
-  const wasmHash = S.hash(wasm);
-  console.log('[deploy] WASM hash:', wasmHash.toString('hex'));
-
-  console.log('[deploy] Uploading contract WASM...');
-  const uploadOp = S.Operation.uploadContractWasm({ wasm });
-  const tx1 = new S.TransactionBuilder(acc, { fee: '100000', networkPassphrase: S.Networks.TESTNET })
-    .addOperation(uploadOp)
-    .setTimeout(180)
-    .build();
-
-  const sim1 = await server.simulateTransaction(tx1);
-  if (S.rpc.Api.isSimulationError(sim1)) {
-    throw new Error(`Simulation error during upload: ${JSON.stringify(sim1.error)}`);
-  }
-  const assembled1 = S.rpc.assembleTransaction(tx1, sim1).build();
-  assembled1.sign(kp);
-  const r1 = await server.sendTransaction(assembled1);
-  console.log('[deploy] Upload tx submitted:', r1.hash, 'status:', r1.status);
-
-  let res1 = await server.getTransaction(r1.hash);
-  while (res1.status === S.rpc.Api.GetTransactionStatus.NOT_FOUND) {
-    await new Promise(r => setTimeout(r, 1000));
-    res1 = await server.getTransaction(r1.hash);
-  }
-  if (res1.status !== S.rpc.Api.GetTransactionStatus.SUCCESS) {
-    throw new Error(`Upload transaction failed on ledger: ${JSON.stringify(res1)}`);
-  }
-  console.log('[deploy] WASM uploaded successfully.');
-
-  console.log('[deploy] Creating contract instance with token SAC:', tokenContract);
-  acc = await server.getAccount(kp.publicKey());
-  const constructorArgs = [new S.Address(tokenContract).toScVal()];
-  const createOp = S.Operation.createCustomContract({
-    address: new S.Address(kp.publicKey()),
-    wasmHash,
-    constructorArgs
-  });
-  const tx2 = new S.TransactionBuilder(acc, { fee: '100000', networkPassphrase: S.Networks.TESTNET })
-    .addOperation(createOp)
-    .setTimeout(180)
-    .build();
-
-  const sim2 = await server.simulateTransaction(tx2);
-  if (S.rpc.Api.isSimulationError(sim2)) {
-    throw new Error(`Simulation error during contract creation: ${JSON.stringify(sim2.error)}`);
-  }
-  const assembled2 = S.rpc.assembleTransaction(tx2, sim2).build();
-  assembled2.sign(kp);
-  const r2 = await server.sendTransaction(assembled2);
-  console.log('[deploy] Create contract tx submitted:', r2.hash, 'status:', r2.status);
-
-  let res2 = await server.getTransaction(r2.hash);
-  while (res2.status === S.rpc.Api.GetTransactionStatus.NOT_FOUND) {
-    await new Promise(r => setTimeout(r, 1000));
-    res2 = await server.getTransaction(r2.hash);
-  }
-  if (res2.status !== S.rpc.Api.GetTransactionStatus.SUCCESS) {
-    throw new Error(`Create contract transaction failed on ledger: ${JSON.stringify(res2)}`);
-  }
-
-  const contractId = S.Address.fromScVal(res2.returnValue).toString();
-  console.log('[deploy] Successfully deployed HitoEscrow contract ID:', contractId);
-  mkdirSync('reports/testnet', { recursive: true });
-  writeFileSync('reports/testnet/contract-id.txt', contractId + '\n');
-  return contractId;
-}
-
-main().catch(e => {
-  console.error('[deploy] Failed:', e);
+// Explicit authorization is checked before dependencies, subprocesses or network.
+if (process.env.HITO_ALLOW_TESTNET_DEPLOY !== 'yes') {
+  console.error('[deploy] Set HITO_ALLOW_TESTNET_DEPLOY=yes only after authorizing this Testnet deployment.');
   process.exit(1);
-});
+}
+const deployer = process.env.HITO_DEPLOYER;
+const token = process.env.HITO_TOKEN_CONTRACT_ID;
+if (!deployer || !/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/.test(deployer) || !token) {
+  console.error('[deploy] Set HITO_DEPLOYER to an existing Stellar CLI identity alias (1–40 characters) and HITO_TOKEN_CONTRACT_ID to the verified Testnet token contract.');
+  process.exit(1);
+}
+if (process.env.HITO_DEPLOYER_SECRET) {
+  console.error('[deploy] HITO_DEPLOYER_SECRET is unsupported. Use an existing Stellar CLI identity alias.');
+  process.exit(1);
+}
+const { StrKey } = await import('@stellar/stellar-sdk');
+if (!StrKey.isValidContract(token)) {
+  console.error('[deploy] HITO_TOKEN_CONTRACT_ID must be a valid contract address.');
+  process.exit(1);
+}
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const rpcUrl = 'https://soroban-testnet.stellar.org';
+const passphrase = 'Test SDF Network ; September 2015';
+let reportDir;
+function run(command, args, capture = false) {
+  const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', maxBuffer: 16 * 1024 * 1024 });
+  if (result.error) throw new Error(`${command} could not start. Install it and ensure it is on PATH (${result.error.code}).`);
+  if (result.status !== 0) throw new Error(`${command} failed (exit ${result.status ?? result.signal}).${capture ? `\n${result.stderr || ''}` : ''}`);
+  return result;
+}
+try {
+  const stellarVersion = run('stellar', ['--version'], true).stdout.trim();
+  const cargoVersion = run('cargo', ['--version'], true).stdout.trim();
+  run('cargo', ['test', '--locked', '--manifest-path', 'contracts/Cargo.toml']);
+  run(process.execPath, ['scripts/build-contract.mjs']);
+  const wasm = 'contracts/target/wasm32v1-none/release/hito_escrow.wasm';
+  const wasmSha256 = createHash('sha256').update(readFileSync(join(root, wasm))).digest('hex');
+  mkdirSync(join(root, 'reports'), { recursive: true });
+  reportDir = mkdtempSync(join(root, `reports/testnet-deploy-${new Date().toISOString().replace(/[:.]/g, '-')}-`));
+  const metadata = { network: 'testnet', rpcUrl, passphrase, deployerAlias: deployer, tokenContract: token, wasmSha256, stellarVersion, cargoVersion, startedAt: new Date().toISOString() };
+  writeFileSync(join(reportDir, 'deployment.json'), JSON.stringify({ ...metadata, status: 'STARTED' }, null, 2) + '\n');
+  console.error(`[deploy] Report: ${reportDir}`);
+  // Explicit URL/passphrase avoid a locally redefined network alias.
+  const result = spawnSync('stellar', ['contract', 'deploy', '--wasm', wasm, '--source-account', deployer, '--rpc-url', rpcUrl, '--network-passphrase', passphrase, '--', '--token', token], { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  writeFileSync(join(reportDir, 'deploy.stdout.log'), result.stdout || '');
+  writeFileSync(join(reportDir, 'deploy.stderr.log'), result.stderr || '');
+  const contractId = (result.stdout || '').trim();
+  const success = !result.error && result.status === 0 && StrKey.isValidContract(contractId);
+  writeFileSync(join(reportDir, 'deployment.json'), JSON.stringify({ ...metadata, finishedAt: new Date().toISOString(), status: success ? 'CLI_SUCCEEDED' : 'UNCONFIRMED', exitCode: result.status, contractId: success ? contractId : null }, null, 2) + '\n');
+  if (!success) throw new Error('Deployment was not confirmed by CLI output. Inspect the preserved logs and network state before retrying; it may have been submitted.');
+  writeFileSync(join(reportDir, 'contract-id.txt'), contractId + '\n');
+  console.log(contractId);
+  console.error('[deploy] Verify the deployed WASM, token and transaction receipt on Testnet; this is not an escrow payment confirmation.');
+} catch (error) {
+  console.error(`[deploy] ${error.message}`);
+  if (reportDir) console.error(`[deploy] Preserved report: ${reportDir}`);
+  process.exitCode = 1;
+}

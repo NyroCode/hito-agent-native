@@ -9,7 +9,7 @@
 | Otro proyecto | scopes del token en todas las lecturas/escrituras | Una sola credencial agent en demo; no tenant SaaS |
 | Dinero en float/overflow | enteros positivos i128, suma exacta; Rust local PASS | balances Testnet pendientes |
 | Reintento duplica | idempotencia SQLite, lock de fuente, estado contractual | No coordina otros programas externos que usan la misma wallet |
-| Firma manipulada | body hash/origen/red y firma SDK real probados | extensión Freighter y envío Testnet pendientes |
+| Firma manipulada | body hash/origen/red y firma SDK real probados | pruebas actuales sin wallet personal; ciclo completo Testnet pendiente |
 | NOT_FOUND tratado como fallo | UNKNOWN y lock conservados; recovery no libera READY por NOT_FOUND | Retención RPC e historial externo todavía limitan la recuperación completa |
 | Evidencia falsificada | provenance self_reported no elevable a trusted | Un agente puede mentir en un reporte declarado; el pagador debe revisar |
 | URL maliciosa | se almacena, no se solicita ni ejecuta | Servicio de verificación futuro necesitaría SSRF/sandbox |
@@ -39,8 +39,12 @@ La ventana de firma e interacción humana es de 900 s (15 minutos). Si la firma 
 
 ## Cadena de suministro
 
-No se ejecutó `curl | bash`. Instalar dependencias con revisión de manifests y lock. No ejecutar instaladores de skills que cambien ~/.config o conocimientos compartidos sin revisión. Stellar Skills/Raven son herramientas de desarrollo; no concederles wallets ni secretos del cliente. El servidor MCP Hito no depende de Raven para funcionar.
+Instalar dependencias con revisión de manifests y lock; ejecutar `npm ci` para reproducirlos. No ejecutar instaladores de skills que cambien ~/.config o conocimientos compartidos sin revisión. Stellar Skills/Raven son herramientas de desarrollo; no concederles wallets ni secretos del cliente. El servidor MCP Hito no depende de Raven para funcionar.
 
 ## Alcance de no-Mainnet
 
 La app, scripts y adapter restringen Testnet. Un WASM de Soroban por sí solo no impide que una persona lo despliegue en otra red. No atribuir al contrato una restricción de red que no implementa. Gate de publicación: no incluir scripts ni configuración de Mainnet.
+
+## Despliegue explícito
+
+El script de despliegue exige `HITO_ALLOW_TESTNET_DEPLOY=yes`, un alias existente de Stellar CLI y el activo Testnet verificado antes de iniciar procesos. No recibe seeds, no genera una cuenta y no solicita fondos automáticamente. Un fallo de CLI tras el envío puede dejar un resultado incierto; conserva el informe y consulta la red antes de repetir.

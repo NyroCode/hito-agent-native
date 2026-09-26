@@ -17,3 +17,7 @@ reports/browser-e2e/
 .DS_Store
 
 /config/generated/
+
+/reports/testnet-deploy-*/
+
+/artifacts/

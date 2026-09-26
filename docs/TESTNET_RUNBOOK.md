@@ -1,10 +1,10 @@
 # Runbook Testnet — ejecución por el agente local y el humano
 
-**No ejecutado en el contenedor. Solo activos de prueba.** Configurar una red no equivale a verificar un pago.
+**Solo activos de prueba.** Esta es una receta, no un recibo de pago. Consulta [REMAINING_GATES.md](REMAINING_GATES.md) para el estado comprobado: un despliegue o un `create` histórico no demuestra el recorrido completo hasta `release`.
 
 ## 1. Prerrequisitos
 
-Cerrar G1–G4; Node, paquetes/locks, cargo/rustc, target `wasm32v1-none`, CLI Stellar compatible, extensión Freighter disponible. Comprobar docs oficiales actuales y `stellar --version`, `rustc --version`, `cargo --version`.
+Comprobar integración local y conexión del agente según [AGENT_SETUP.md](AGENT_SETUP.md). Instalar con `npm ci` usando el lock incluido. Se necesitan cargo/rustc, target `wasm32v1-none`, CLI Stellar compatible y extensión Freighter para las firmas humanas. Registrar `node --version`, `npm --version`, `stellar --version`, `rustc --version` y `cargo --version`. Un target ausente bloquea el build aunque las pruebas nativas pasen.
 
 El humano crea o selecciona **dos wallets de Testnet distintas**, pagador y proveedor. No copiar seeds al repo o al agente. Friendbot proporciona XLM de prueba para la cuenta/fees, no implica tener USDC. Elegir USDC de Testnet con issuer/SAC verificados desde fuente oficial o un token SEP-41 de prueba claramente etiquetado; nunca etiquetar un token arbitrario como USDC oficial.
 
@@ -16,23 +16,25 @@ Verificar trustlines/requisitos del activo, decimals y saldo de cada cuenta. Amb
 npm run contract:test
 npm run contract:build
 # Revisar antes de ejecutar. Variables públicas; HITO_DEPLOYER es un alias seguro de CLI.
-HITO_ALLOW_TESTNET_DEPLOY=yes HITO_DEPLOYER=ALIAS_PUBLICADOR HITO_TOKEN_CONTRACT_ID=CONTRATO_TOKEN_TESTNET   bash scripts/deploy-testnet.sh
+HITO_ALLOW_TESTNET_DEPLOY=yes HITO_DEPLOYER=ALIAS_PUBLICADOR HITO_TOKEN_CONTRACT_ID=CONTRATO_TOKEN_TESTNET node scripts/deploy-testnet.mjs
 ```
 
-El script usa `--network testnet` y pasa token al constructor. Confirmar sintaxis contra `stellar contract deploy --help` de la versión instalada. Registrar código WASM y su SHA-256, tx de despliegue e ID devuelto; verificar source contra WASM, `asset` y almacenamiento. No crear IDs ficticios para completar README.
+Sustituir los identificadores por un alias **existente** de Stellar CLI y el contrato del activo verificado. El operador autoriza el despliegue con `HITO_ALLOW_TESTNET_DEPLOY=yes`; el script no crea identidades, no recibe seeds ni financia cuentas. `HITO_DEPLOYER_SECRET` no está soportado. El archivo `.sh` es un wrapper del script Node.
+
+El script ejecuta pruebas y build con `--locked`, fija explícitamente RPC y passphrase de Testnet y pasa el token al constructor. Guarda metadatos, SHA-256 del WASM y salida de CLI en un directorio nuevo `reports/testnet-deploy-<fecha-ISO>-<sufijo>/`. `CLI_SUCCEEDED` indica salida correcta de CLI e ID válido; verificar aparte recibo de red, código desplegado, `asset` y almacenamiento. `UNCONFIRMED` exige consultar logs y red antes de repetir: podría haberse enviado. No inventar IDs ni hashes.
 
 Los tests de Rust crean su propio token in-memory: eso NO despliega un token de red.
 
 ## 3. Configuración local real
 
-Detener backend antes de cambiar configuración. Mantener tokens API fuera de conversaciones. Configurar `HITO_MODE=testnet`, `HITO_CONTRACT_ID`, RPC oficial y scopes. Crear **nuevo proyecto** con wallets/token reales de Testnet desde UI admin. No reutilizar `demo` ni un work sellado con contrato UNCONFIGURED. `HITO_TOKEN_CONTRACT_ID` se usa en scripts; la API toma activo desde Project y lo coteja con `asset` del escrow.
+El humano detiene el backend y modifica su `.env`, conservando tokens API fuera de conversaciones. Configura `HITO_MODE=testnet`, `HITO_CONTRACT_ID`, RPC oficial y el proyecto en `HITO_AGENT_PROJECTS`; reinicia con `npm start`. Crear **nuevo proyecto** con wallets/token reales de Testnet desde UI admin. No reutilizar `demo` ni un work sellado con contrato UNCONFIGURED. `HITO_TOKEN_CONTRACT_ID` se usa en scripts; la API toma activo desde Project y lo coteja con `asset` del escrow.
 
 ```bash
-# Solo información pública adicional requerida por el preflight:
-HITO_TOKEN_CONTRACT_ID=... HITO_PAYER_ADDRESS=... HITO_PAYEE_ADDRESS=... node --env-file=.env scripts/testnet-preflight.mjs
+# Sustituir por identificadores públicos; no necesita tokens API:
+HITO_CONTRACT_ID=CONTRATO_ESCROW_TESTNET HITO_TOKEN_CONTRACT_ID=CONTRATO_TOKEN_TESTNET HITO_PAYER_ADDRESS=DIRECCION_PAGADOR HITO_PAYEE_ADDRESS=DIRECCION_PROVEEDOR node scripts/testnet-preflight.mjs
 ```
 
-Preflight confirma la red, no ownership, balances ni code hash. Verificar eso separadamente.
+Preflight confirma la red del RPC y que se proporcionaron los identificadores. No valida formato/existencia de esos identificadores, ownership, balances ni code hash. Verificar eso separadamente.
 
 ## 4. Recorrido de un hito
 

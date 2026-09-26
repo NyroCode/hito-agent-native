@@ -1,15 +1,12 @@
 # Empieza aquí
 
-**Hito 0.1.0 — integración local verificada, 20 de septiembre de 2026.**
+Hito permite que tu agente de código gestione acuerdos de trabajo, hitos, progreso, evidencia y solicitudes de pago autorizadas.
 
-Este ZIP contiene el núcleo local, locks npm/Cargo, contrato compilable, interfaz probada en Chromium y evidencia reproducible. **No es una aplicación desplegada, auditada ni probada de extremo a extremo en Stellar Testnet:** la extensión Freighter, las firmas humanas y las transacciones de red siguen pendientes.
+1. Sigue [README](README.md) para instalar con `npm ci`, crear la configuración local y abrir la demo.
+2. Conecta tu cliente mediante [AGENT_SETUP](docs/AGENT_SETUP.md). Hito puede vivir en una carpeta distinta de tu proyecto.
+3. Practica el [recorrido local](docs/DEMO.md) o registra tu propio proyecto con la [guía de configuración](docs/CONFIGURATION.md).
+4. Consulta [VALIDATION](docs/VALIDATION.md) y [REMAINING_GATES](docs/REMAINING_GATES.md) antes de interpretar pruebas locales como evidencia de pagos.
 
-1. Abre la carpeta con tu agente y dale `prompts/LOCAL_AGENT_HANDOFF.md`.
-2. Antes de modificar, lee `AGENTS.md`, `README.md`, el informe actual `reports/local-20260920T190853Z/VALIDATION.md` y el histórico `reports/build/VALIDATION.md`.
-3. Reproduce `npm run check` y `npm test`. El modo local no necesita instalar paquetes npm.
-4. Para usar la interfaz: `npm run setup`, `npm start` y, en otra terminal, `npm run demo:seed`.
-5. Revisa `docs/REMAINING_GATES.md`: G2 host, G4 Freighter real y G5/G6 Testnet/video no están cerrados y no deben anunciarse como demo on-chain.
+Para desarrollar Hito, lee [AGENTS](AGENTS.md), la [constitución](.specify/memory/constitution.md), la [especificación](specs/001-hito-agent-native/spec.md), su plan y tareas, y [CONTRIBUTING](CONTRIBUTING.md). El informe de [reports/build](reports/build/VALIDATION.md) describe la primera entrega y se conserva como histórico.
 
-No uses dinero real. No pegues una seed en ningún archivo o conversación. El token de API no es una clave de wallet. Ningún archivo de configuración personal, base de datos ni secreto viene dentro del ZIP.
-
-La constitución y especificaciones siguen la organización de Spec Kit; el CLI upstream no está incluido ni se ejecutó aquí. La instalación revisada y no destructiva está descrita en `docs/SPEC_KIT.md`.
+Cada instalación genera sus credenciales. No compartas `.env`, `.hito-agent.env`, la base de datos ni configuraciones con rutas personales. La demo local no necesita wallet; las operaciones de red siguen el [runbook Testnet](docs/TESTNET_RUNBOOK.md).

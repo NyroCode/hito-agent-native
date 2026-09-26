@@ -1,5 +1,5 @@
 {
-  "description": "Documented JSON schemas; SDK runtime schemas live in src/mcp/main.ts. No SDK handshake claimed.",
+  "description": "Documented JSON schemas; SDK runtime schemas live in src/mcp/main.ts. Runtime handshake and tool calls are covered by tests/adapters/mcp.test.ts.",
   "tools": [
     {
       "name": "hito_get_context",

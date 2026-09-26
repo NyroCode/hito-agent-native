@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "description": "Agent-native work agreements and Testnet escrow; no embedded LLM",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NyroCode/hito-agent-native.git"
+  },
   "engines": {
     "node": ">=22.16.0"
   },
@@ -23,7 +27,8 @@
     "cli": "node --experimental-strip-types src/cli/main.ts",
     "contract:test": "cargo test --locked --manifest-path contracts/Cargo.toml",
     "contract:build": "node scripts/build-contract.mjs",
-    "configure:agent": "node scripts/configure-agent.mjs"
+    "configure:agent": "node scripts/configure-agent.mjs",
+    "doctor": "node --experimental-strip-types scripts/doctor.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

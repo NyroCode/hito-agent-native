@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync,mkdirSync,rmSync,writeFileSync,existsSync,readFileSync } from 'node:fs';
-import { tmpdir,homedir } from 'node:os';
+import { mkdtempSync,mkdirSync,rmSync,writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join,resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -13,37 +13,41 @@ import { admin,agent,delivery,fixture,plan } from '../fixtures.ts';
 const reportDir=resolve(process.env.HITO_BROWSER_REPORT_DIR??'reports/browser-e2e');
 mkdirSync(reportDir,{recursive:true});
 const profile=mkdtempSync(join(tmpdir(),'hito-chromium-'));
-const f=fixture();
+let f,server,chromium,ws;
+const pending=new Map();
+let chromiumError;
+try{
+f=fixture();
 const malicious='<img src=x onerror="window.__hitoXss=1">';
 const maliciousPlan={...plan(),title:malicious,description:`Texto no ejecutable ${malicious}`};
 const work=f.svc.save(agent,'demo',{plan:maliciousPlan},'browser-xss');
 f.svc.seal(admin,work.id,{expectedVersion:1},'browser-seal');
 f.svc.deliver(agent,work.id,delivery(),'browser-delivery');
 const config={adminToken:randomBytes(32).toString('hex'),agentToken:randomBytes(32).toString('hex'),agentProjects:['demo'],db:':memory:',port:0,origin:'',mode:'local',contractId:'UNCONFIGURED_TESTNET_CONTRACT',rpcUrl:'https://soroban-testnet.stellar.org'};
-const server=application(config,f.svc,new PaymentService(f.svc,offlineChain()));
+server=application(config,f.svc,new PaymentService(f.svc,offlineChain()));
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 config.port=server.address().port;config.origin=`http://127.0.0.1:${config.port}`;
 
 async function freePort(){const s=createNetServer();await new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));const port=s.address().port;await new Promise(resolve=>s.close(resolve));return port;}
 const debugPort=await freePort();
-const chromium=spawn('chromium',[`--remote-debugging-port=${debugPort}`,`--user-data-dir=${profile}`,'--headless=new','--no-sandbox','--no-first-run','--no-default-browser-check','--disable-sync','--disable-background-networking','about:blank'],{stdio:['ignore','ignore','pipe']});
+chromium=spawn(process.env.CHROMIUM_BIN||'chromium',[`--remote-debugging-port=${debugPort}`,`--user-data-dir=${profile}`,'--headless=new','--no-sandbox','--no-first-run','--no-default-browser-check','--disable-sync','--disable-background-networking','about:blank'],{stdio:['ignore','ignore','pipe']});
+chromium.on('error',error=>{chromiumError=error;});
 let chromiumStderr='';chromium.stderr.on('data',chunk=>{chromiumStderr+=chunk.toString();});
 
-async function pollJson(path){for(let n=0;n<100;n++){try{const r=await fetch(`http://127.0.0.1:${debugPort}${path}`);if(r.ok)return r.json();}catch{}await new Promise(resolve=>setTimeout(resolve,50));}throw new Error(`Chromium DevTools did not start: ${chromiumStderr.slice(-2000)}`);}
+async function pollJson(path){for(let n=0;n<100;n++){if(chromiumError)throw new Error(`Cannot start Chromium: ${chromiumError.message}. Set CHROMIUM_BIN to your Chromium executable.`);if(chromium.exitCode!==null||chromium.signalCode!==null)throw new Error(`Chromium exited before DevTools was ready: ${chromiumStderr.slice(-2000)}`);try{const r=await fetch(`http://127.0.0.1:${debugPort}${path}`);if(r.ok)return r.json();}catch{}await new Promise(resolve=>setTimeout(resolve,50));}throw new Error(`Chromium DevTools did not start: ${chromiumStderr.slice(-2000)}`);}
 await pollJson('/json/version');
 const target=await (await fetch(`http://127.0.0.1:${debugPort}/json/new?about:blank`,{method:'PUT'})).json();
-const ws=new WebSocket(target.webSocketDebuggerUrl);
+ws=new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true});});
-let nextId=0;const pending=new Map();
+let nextId=0;
 ws.addEventListener('message',event=>{const msg=JSON.parse(String(event.data));if(msg.id&&pending.has(msg.id)){const {resolve:done,reject}=pending.get(msg.id);pending.delete(msg.id);msg.error?reject(new Error(JSON.stringify(msg.error))):done(msg.result);}});
-function send(method,params={}){return new Promise((done,reject)=>{const id=++nextId;pending.set(id,{resolve:done,reject});ws.send(JSON.stringify({id,method,params}));});}
+function send(method,params={}){return new Promise((done,reject)=>{const id=++nextId;const timer=setTimeout(()=>{pending.delete(id);reject(new Error(`DevTools command timed out: ${method}`));},10000);pending.set(id,{resolve:value=>{clearTimeout(timer);done(value);},reject:error=>{clearTimeout(timer);reject(error);}});ws.send(JSON.stringify({id,method,params}));});}
 async function evaluate(expression){const out=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(out.exceptionDetails)throw new Error(`${out.exceptionDetails.exception?.description??out.exceptionDetails.text} at ${out.exceptionDetails.lineNumber}:${out.exceptionDetails.columnNumber}`);return out.result.value;}
 async function waitFor(expression,message){for(let n=0;n<100;n++){if(await evaluate(expression))return;await new Promise(resolve=>setTimeout(resolve,50));}throw new Error(message);}
 async function navigate(url){await send('Page.navigate',{url});await waitFor(`document.readyState==='complete'`,`Page did not load ${url}`);}
 async function screenshot(name){const out=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});writeFileSync(join(reportDir,name),Buffer.from(out.data,'base64'));}
 
 const results=[];
-try{
   await Promise.all([send('Page.enable'),send('Runtime.enable'),send('Network.enable')]);
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await navigate(config.origin+'/');
@@ -79,18 +83,21 @@ try{
   await navigate(config.origin+'/');
   const afterReload=await evaluate(`({input:document.querySelector('#token').value,connection:document.querySelector('#connection').textContent,local:Object.keys(localStorage),session:Object.keys(sessionStorage),htmlHasToken:document.documentElement.outerHTML.includes(${JSON.stringify(config.adminToken)})})`);
   assert.deepEqual(afterReload,{input:'',connection:'No conectado',local:[],session:[],htmlHasToken:false});results.push('reload does not restore credentials');
-  const freighterExtPath=join(homedir(),'.config/chromium/Default/Extensions/bcacfldlkkdogcmkkibnjlakofdplcbk/5.48.0_0');
-  let freighterExtension=null;
-  if(existsSync(join(freighterExtPath,'manifest.json'))){
-    try{
-      const manifest=JSON.parse(readFileSync(join(freighterExtPath,'manifest.json'),'utf8'));
-      freighterExtension={detected:true,name:manifest.name,version:manifest.version};
-      results.push(`Freighter host extension detected (${manifest.name} v${manifest.version})`);
-    }catch{}
-  }
-  const report={browser:'Chromium',version:(await pollJson('/json/version')).Browser,profile:'ephemeral-deleted',viewportTests:[1440,390],freighterHostExtension:freighterExtension,results};
+  const report={browser:'Chromium',version:(await pollJson('/json/version')).Browser,profile:'ephemeral-deleted',viewportTests:[1440,390],walletTransport:'simulated; no extension loaded or real signatures',results};
   writeFileSync(join(reportDir,'browser-e2e.json'),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(report,null,2));
 }finally{
-  ws.close();chromium.kill('SIGTERM');await new Promise(resolve=>chromium.once('exit',resolve));await new Promise(resolve=>server.close(resolve));f.db.close();rmSync(profile,{recursive:true,force:true});
+  for(const request of pending.values())request.reject(new Error('Browser test ended'));
+  pending.clear();
+  if(ws && ws.readyState!==WebSocket.CLOSED)ws.close();
+  if(chromium?.pid && chromium.exitCode===null && chromium.signalCode===null){
+    await new Promise(resolve=>{
+      const timer=setTimeout(()=>chromium.kill('SIGKILL'),2000);
+      chromium.once('exit',()=>{clearTimeout(timer);resolve();});
+      chromium.kill('SIGTERM');
+    });
+  }
+  if(server?.listening){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+  f?.db.close();
+  rmSync(profile,{recursive:true,force:true});
 }
